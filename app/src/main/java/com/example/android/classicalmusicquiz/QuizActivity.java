@@ -16,6 +16,10 @@
 
 package com.example.android.classicalmusicquiz;
 
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -25,9 +29,11 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.media.session.MediaButtonReceiver;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.app.NotificationCompat;
 import android.view.View;
 import android.widget.Button;
 
@@ -69,8 +75,9 @@ public class QuizActivity extends AppCompatActivity
     private SimpleExoPlayerView mPlayerView;
     private SimpleExoPlayer mExoPlayer;
 
-    private MediaSessionCompat mMediaSession;
+    private static MediaSessionCompat mMediaSession;
     private PlaybackStateCompat.Builder mStateBuilder;
+    private NotificationManager mNotificationManager;
 
 
     @Override
@@ -110,12 +117,17 @@ public class QuizActivity extends AppCompatActivity
             finish();
         }
 
+
         // Initialize the buttons with the composers names.
         mButtons = initializeButtons(mQuestionSampleIDs);
 
         Sample sample = Sample.getSampleByID(this, mAnswerSampleID);
-        initializePlayer(Uri.parse(sample.getUri()));
+
+        // Initialize Media Session
         initializeMediaSession();
+
+        // Initialize Player
+        initializePlayer(Uri.parse(sample.getUri()));
     }
 
     private void initializeMediaSession() {
@@ -166,6 +178,7 @@ public class QuizActivity extends AppCompatActivity
             mExoPlayer = null;
         }
         mMediaSession.setActive(false);
+        mNotificationManager.cancelAll();
     }
     /**
      * Initializes the button to the correct views, and sets the text to the composers names,
@@ -268,6 +281,45 @@ public class QuizActivity extends AppCompatActivity
         }
     }
 
+    private void showNotification(PlaybackStateCompat state){
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this);
+
+        int icon;
+        String play_pause;
+        if(state.getState() == PlaybackStateCompat.STATE_PLAYING){
+            icon = R.drawable.exo_controls_pause;
+            play_pause = getString(R.string.exo_controls_pause_description);
+        }else {
+            icon = R.drawable.exo_controls_play;
+            play_pause = getString(R.string.exo_controls_play_description);
+        }
+
+        NotificationCompat.Action playPauseAction = new android.support.v4.app.NotificationCompat.Action(
+                icon, play_pause,
+                MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_PLAY_PAUSE));
+
+        NotificationCompat.Action restartAction = new android.support.v4.app.NotificationCompat.Action(
+                R.drawable.exo_controls_previous, getString(R.string.exo_controls_previous_description),
+                MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS));
+
+        PendingIntent contentPendingIntent = PendingIntent.getActivity(
+                this, 0, new Intent(this, QuizActivity.class), 0);
+
+        builder.setContentTitle(getString(R.string.guess))
+                .setContentText(getString(R.string.notification_text))
+                .setContentIntent(contentPendingIntent)
+                .setSmallIcon(R.drawable.ic_music_note)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .addAction(restartAction)
+                .addAction(playPauseAction)
+                .setStyle(new NotificationCompat.MediaStyle()
+                    .setMediaSession(mMediaSession.getSessionToken())
+                    .setShowActionsInCompactView(0, 1));
+
+        mNotificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        mNotificationManager.notify(0, builder.build());
+    }
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -299,6 +351,7 @@ public class QuizActivity extends AppCompatActivity
                     mExoPlayer.getCurrentPosition(), 1f);
         }
         mMediaSession.setPlaybackState(mStateBuilder.build());
+        showNotification(mStateBuilder.build());
     }
 
     @Override
@@ -315,16 +368,27 @@ public class QuizActivity extends AppCompatActivity
         @Override
         public void onPlay() {
             super.onPlay();
+            mExoPlayer.setPlayWhenReady(true);
         }
 
         @Override
         public void onPause() {
             super.onPause();
+            mExoPlayer.setPlayWhenReady(false);
         }
 
         @Override
         public void onSkipToPrevious() {
             super.onSkipToPrevious();
+            mExoPlayer.seekTo(0);
+        }
+    }
+
+    public static class MediaReceiver extends BroadcastReceiver{
+
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            MediaButtonReceiver.handleIntent(mMediaSession, intent);
         }
     }
 
